@@ -9,20 +9,20 @@ function Gauge({value,max=100,unit,label,accent='cyan',available=true}){if(!avai
 function StatusDot({ok}){return <span className={'status-dot '+(ok?'on':'off')}/>}
 
 export default function App(){
- const[latest,setLatest]=useState({temperature:null,humidity:null,mq3:null,mq7:null,pir:null,ir:null,buzzer:null,fan:null,lastDeviceUpdate:null});
- const[connected,setConnected]=useState(false),[history,setHistory]=useState([]),[alerts,setAlerts]=useState([]),[events,setEvents]=useState([]),[threshold,setThreshold]=useState(35),[autoFan,setAutoFan]=useState(true),[tab,setTab]=useState('overview'),[apiMs,setApiMs]=useState(null);
+ const[latest,setLatest]=useState({temperature:null,humidity:null,mq3:null,ir:null,buzzer:null,fan:null,lastDeviceUpdate:null});
+ const[connected,setConnected]=useState(false),[history,setHistory]=useState([]),[alerts,setAlerts]=useState([]),[events,setEvents]=useState([]),[threshold,setThreshold]=useState(33),[autoFan,setAutoFan]=useState(true),[tab,setTab]=useState('overview'),[apiMs,setApiMs]=useState(null);
  const poll=async()=>{const s0=performance.now();try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();setApiMs(Math.round(performance.now()-s0));setLatest(s);const on=fresh(s.lastDeviceUpdate);setConnected(on);if(on&&s.temperature!=null)setHistory(h=>[...h.slice(-59),{time:now(),temp:Number(s.temperature),hum:Number(s.humidity||0)}]);}catch{setConnected(false)}};
  useEffect(()=>{poll();const id=setInterval(poll,2000);return()=>clearInterval(id)},[]);
- const t=Number(latest.temperature),high=connected&&t>=threshold,gas=connected&&Number(latest.mq3)>=50,co=connected&&Number(latest.mq7)>=50;
- const warning=high||latest.pir===true||latest.ir===true,critical=gas||co,status=!connected?'OFFLINE':critical?'CRITICAL':warning?'WARNING':'SAFE';
- const score=!connected?null:Math.max(0,100-(gas?35:0)-(co?35:0)-(high?15:0)-(latest.pir?10:0)-(latest.ir?5:0));
+ const t=Number(latest.temperature),high=connected&&t>=threshold,gas=connected&&Number(latest.mq3)>=50;
+ const warning=high||latest.ir===true,critical=gas,status=!connected?'OFFLINE':critical?'CRITICAL':warning?'WARNING':'SAFE';
+ const score=!connected?null:Math.max(0,100-(gas?35:0)-(high?15:0)-(latest.ir?5:0));
  const add=(event,value,level='NORMAL')=>{setEvents(e=>[{time:now(),event,value,level},...e].slice(0,30));setAlerts(a=>[{time:now(),text:event+' '+value,type:level},...a].slice(0,30))};
  const test=async(field)=>{const v=!latest[field];await fetch('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[field]:v,source:'dashboard-test'})});add(field.toUpperCase(),'TEST '+(v?'TRIGGERED':'CLEARED'),v?'WARNING':'NORMAL');poll()};
  const command=async(value)=>{await fetch('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fan:value,source:'dashboard-command'})});add('FAN',value?'ON':'OFF','NORMAL');poll()};
- useEffect(()=>{if(connected&&latest.pir)add('PIR','MOTION','WARNING')},[latest.pir,connected]);
+ 
  useEffect(()=>{if(connected&&latest.ir)add('IR','OBJECT','WARNING')},[latest.ir,connected]);
  useEffect(()=>{if(gas)add('MQ-3','GAS DETECTED','CRITICAL')},[gas]);
- useEffect(()=>{if(co)add('MQ-7','CO DETECTED','CRITICAL')},[co]);
+ 
 
  return <div className="app">
   <aside className="sidebar">
@@ -58,7 +58,7 @@ export default function App(){
        <div className="cabin-map">
         <div className="car-body"><div className="windshield"/><div className="car-dashboard"/><div className="seat left"/><div className="seat right"/><div className="console"/><div className="steering"/></div>
         <div className="map-point p1"><i>✓</i><span>IR Sensor</span><b>{connected?(latest.ir?'Object Detected':'No Object'):'No Data'}</b></div>
-        <div className="map-point p2"><i>✓</i><span>PIR Sensor</span><b>{connected?(latest.pir?'Motion Detected':'No Motion'):'No Data'}</b></div>
+        
         <div className="map-point p3"><i>✓</i><span>MQ-3 Sensor</span><b>{connected?(gas?'Gas Detected':'No Gas Detected'):'No Data'}</b></div>
        </div>
        <div className="normal-caption">{connected?(high?'High Temperature':'Normal Cabin Temperature'):'Waiting for telemetry'} <b>{connected&&Number.isFinite(t)?t.toFixed(1)+'°C':'--'}</b></div>
@@ -66,7 +66,7 @@ export default function App(){
 
       <div className="right-stack">
        <div className="panel mq-panel"><div className="panel-title"><span>🧪 MQ-3 (Alcohol/Gas)</span><small>DO</small></div><Gauge value={latest.mq3} max={100} unit="DO" label={gas?'ALERT':'NORMAL'} accent="purple" available={connected}/><p>{gas?'Gas detected':'No Gas Detected'}</p></div>
-       <div className="panel mq-panel"><div className="panel-title"><span>☁ MQ-7 (CO)</span><small>ADC</small></div><Gauge value={latest.mq7} max={100} unit="ADC" label={co?'ALERT':'NO DATA'} accent="violet" available={connected&&latest.mq7!=null}/><p>{latest.mq7==null?'ADS1115 required':'CO monitoring active'}</p></div>
+       
       </div>
      </section>
 
@@ -77,7 +77,7 @@ export default function App(){
      </section>
 
      <section className="status-grid">
-      <div className="panel"><div className="section-title"><h3>◉ Sensors Status</h3><small>{connected?'LIVE':'NO DATA'}</small></div><div className="sensor-cards">{[['PIR',latest.pir?'Motion':'No Motion',latest.pir],['IR',latest.ir?'Object':'No Object',latest.ir],['MQ-3',gas?'Alert':'Normal',gas],['MQ-7',co?'Alert':'No Data',co],['DHT11',connected?((latest.temperature??'--')+'°C / '+(latest.humidity??'--')+'%'):'No Data',false]].map((x,i)=><div className="mini-sensor" key={i}><span className={x[2]?'warn-icon':'ok-icon'}>{x[2]?'!':'✓'}</span><b>{x[0]}</b><small>{connected?x[1]:'No Data'}</small></div>)}</div></div>
+      <div className="panel"><div className="section-title"><h3>◉ Sensors Status</h3><small>{connected?'LIVE':'NO DATA'}</small></div><div className="sensor-cards">{[['IR',latest.ir?'Object':'No Object',latest.ir],['MQ-3',gas?'Alert':'Normal',gas],['DHT11',connected?((latest.temperature??'--')+'°C / '+(latest.humidity??'--')+'%'):'No Data',false]].map((x,i)=><div className="mini-sensor" key={i}><span className={x[2]?'warn-icon':'ok-icon'}>{x[2]?'!':'✓'}</span><b>{x[0]}</b><small>{connected?x[1]:'No Data'}</small></div>)}</div></div>
       <div className="panel"><div className="section-title"><h3>⚙ Actuators Status</h3><small>OUTPUTS</small></div><div className="actuator-cards"><div><span>🔊</span><b>Buzzer</b><strong>{connected?(latest.buzzer?'ON':'OFF'):'--'}</strong></div><div><span>🌀</span><b>Fan</b><strong>{connected?(latest.fan?'ON':'OFF'):'--'}</strong></div></div></div>
       <div className="panel"><div className="section-title"><h3>♨ Automatic Fan Control</h3><small>{autoFan?'AUTO':'MANUAL'}</small></div><div className="fan-control"><div><span>Temp Threshold</span><b>{threshold}°C</b></div><input type="range" min="25" max="45" value={threshold} onChange={e=>setThreshold(+e.target.value)}/><label><input type="checkbox" checked={autoFan} onChange={e=>setAutoFan(e.target.checked)}/><i/>{autoFan?'Auto Mode':'Manual Mode'}</label></div></div>
      </section>
@@ -90,7 +90,7 @@ export default function App(){
     </>}
 
     {tab==='events'&&<section className="full-tab panel"><div className="section-title"><h2>Alert History & Event Log</h2><button onClick={()=>{setAlerts([]);setEvents([])}}>Clear All</button></div>{[...alerts.map(a=>({time:a.time,event:a.text,value:a.type})),...events].map((e,i)=><div className="event-big" key={i}><span>{e.time}</span><b>{e.event||e.text}</b><strong>{e.value||e.type}</strong></div>)}</section>}
-    {tab==='tests'&&<section className="full-tab panel"><h2>Hardware Test</h2><p>Run local dashboard tests against the API. ESP8266 telemetry can overwrite temporary test values.</p><div className="test-buttons">{['pir','ir','mq3','mq7','buzzer'].map(x=><button key={x} disabled={!connected} onClick={()=>test(x)}>TEST {x.toUpperCase()}</button>)}<button disabled={!connected} onClick={()=>command(true)}>FAN ON</button><button disabled={!connected} onClick={()=>command(false)}>FAN OFF</button></div></section>}
+    {tab==='tests'&&<section className="full-tab panel"><h2>Hardware Test</h2><p>Run local dashboard tests against the API. ESP8266 telemetry can overwrite temporary test values.</p><div className="test-buttons">{['ir','mq3','buzzer'].map(x=><button key={x} disabled={!connected} onClick={()=>test(x)}>TEST {x.toUpperCase()}</button>)}<button disabled={!connected} onClick={()=>command(true)}>FAN ON</button><button disabled={!connected} onClick={()=>command(false)}>FAN OFF</button></div></section>}
    </main>
    <footer><span>◈ Real-time Monitoring</span><span>♧ AI-Powered Alerts</span><span>☁ Cloud Sync</span><span>▣ Mobile Responsive</span><span>⌾ Secure & Encrypted</span><b>⚗ Hardware Test</b></footer>
   </div>
