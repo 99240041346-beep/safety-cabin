@@ -7,6 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+let history = [];
+
 let state = {
   device: 'NodeMCU V3 / ESP8266',
   online: false,
@@ -48,11 +50,18 @@ app.post('/api/status', (req, res) => {
 
   if (isDevice) {
     state.lastDeviceUpdate = now;
+    history.push({time: now, temperature: body.temperature ?? null, humidity: body.humidity ?? null, mq3: body.mq3 ?? null, ir: body.ir ?? null, buzzer: body.buzzer ?? null, fan: body.fan ?? null});
+    if (history.length > 500) history = history.slice(-500);
   }
 
   state.online = deviceIsOnline();
 
   res.json(state);
+});
+
+app.get('/api/history', (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 120, 1), 500);
+  res.json(history.slice(-limit));
 });
 
 app.get('/api/health', (req, res) => {
