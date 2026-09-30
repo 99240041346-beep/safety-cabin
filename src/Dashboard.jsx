@@ -11,8 +11,11 @@ function StatusDot({ok}){return <span className={'status-dot '+(ok?'on':'off')}/
 export default function App(){
  const[latest,setLatest]=useState({temperature:null,humidity:null,mq3:null,ir:null,buzzer:null,fan:null,lastDeviceUpdate:null});
  const[connected,setConnected]=useState(false),[history,setHistory]=useState([]),[alerts,setAlerts]=useState([]),[events,setEvents]=useState([]),[tab,setTab]=useState('overview'),[apiMs,setApiMs]=useState(null);
- const poll=async()=>{const s0=performance.now();try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();setApiMs(Math.round(performance.now()-s0));setLatest(s);const on=fresh(s.lastDeviceUpdate);setConnected(on);if(on&&s.temperature!=null)setHistory(h=>[...h.slice(-59),{time:now(),temp:Number(s.temperature),hum:Number(s.humidity||0)}]);}catch{setConnected(false)}};
- useEffect(()=>{poll();const id=setInterval(poll,2000);return()=>clearInterval(id)},[]);
+ const[settings,setSettings]=useState(()=>{try{return JSON.parse(localStorage.getItem('scs-settings'))||{refresh:2,alerts:true,compact:false}}catch{return{refresh:2,alerts:true,compact:false}}});
+ const saveSettings=(next)=>{setSettings(next);localStorage.setItem('scs-settings',JSON.stringify(next))};
+ const poll=async()=>{const s0=performance.now();try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();setApiMs(Math.round(performance.now()-s0));setLatest(s);setConnected(fresh(s.lastDeviceUpdate));}catch{setConnected(false)}};
+ const loadHistory=async()=>{try{const r=await fetch('/api/history?limit=120',{cache:'no-store'});if(r.ok){const h=await r.json();setHistory(h.map(x=>({time:new Date(x.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),temp:Number(x.temperature),hum:Number(x.humidity||0)})));}}catch{}};
+ useEffect(()=>{poll();loadHistory();const id=setInterval(()=>{poll();loadHistory()},Math.max(1,Number(settings.refresh)||2)*1000);return()=>clearInterval(id)},[settings.refresh]);
  const t=Number(latest.temperature),high=connected&&t>33,gas=connected&&Number(latest.mq3)>=50;
  const warning=high||latest.ir===true,critical=gas,status=!connected?'OFFLINE':critical?'CRITICAL':warning?'WARNING':'SAFE';
  const score=!connected?null:Math.max(0,100-(gas?35:0)-(high?15:0)-(latest.ir?5:0));
@@ -29,10 +32,10 @@ export default function App(){
    <nav>
     <button className={tab==='overview'?'active':''} onClick={()=>setTab('overview')}>⌂ <span>Live Monitoring</span></button>
     <button className={tab==='events'?'active':''} onClick={()=>setTab('events')}>◉ <span>Alerts</span>{alerts.length>0&&<em>{Math.min(alerts.length,9)}</em>}</button>
-    <button className="nav-disabled">◷ <span>History</span></button>
+    <button className={tab==='history'?'active':''} onClick={()=>{setTab('history');loadHistory()}}>◷ <span>History</span></button>
     <button className={tab==='events'?'active':''} onClick={()=>setTab('events')}>▤ <span>Logs</span></button>
     <button className={tab==='tests'?'active':''} onClick={()=>setTab('tests')}>⚗ <span>Hardware Test</span></button>
-    <button className="nav-disabled">⚙ <span>Settings</span></button>
+    <button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}>⚙ <span>Settings</span></button>
    </nav>
    <div className="side-bottom"><b>SMART CABIN SAFETY v2.0</b><span>Advanced IoT Safety Monitoring System</span></div>
   </aside>
@@ -88,6 +91,7 @@ export default function App(){
      </section>
     </>}
 
+        {tab==='history'&&<section className="full-tab panel">      <div className="section-title"><h2>Sensor History</h2><button onClick={loadHistory}>Refresh</button></div>      <p>Historical telemetry received from the ESP8266. The server keeps the latest 500 readings while the service is running.</p>      {history.length?<ResponsiveContainer width="100%" height={360}><AreaChart data={history}><CartesianGrid stroke="#21345c" strokeDasharray="3 3" opacity=".35"/><XAxis dataKey="time" tick={{fill:'#7183a8',fontSize:9}}/><YAxis tick={{fill:'#7183a8',fontSize:9}}/><Tooltip contentStyle={{background:'#09152e',border:'1px solid #31599c',borderRadius:8}}/><Area type="monotone" dataKey="temp" stroke="#31dcff" fill="none" strokeWidth={2} name="Temperature (°C)"/><Area type="monotone" dataKey="hum" stroke="#9b72ff" fill="none" strokeWidth={2} name="Humidity (%)"/></AreaChart></ResponsiveContainer>:<div className="chart-empty">No telemetry history available yet.</div>}    </section>}    {tab==='settings'&&<section className="full-tab panel settings-panel">      <div className="section-title"><h2>Dashboard Settings</h2><small>SAVED LOCALLY</small></div>      <div className="settings-grid">       <label><span>Refresh interval</span><select value={settings.refresh} onChange={e=>saveSettings({...settings,refresh:Number(e.target.value)})}><option value="1">1 second</option><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></label>       <label><span>Show alerts</span><input type="checkbox" checked={settings.alerts} onChange={e=>saveSettings({...settings,alerts:e.target.checked})}/></label>       <label><span>Compact dashboard</span><input type="checkbox" checked={settings.compact} onChange={e=>saveSettings({...settings,compact:e.target.checked})}/></label>      </div>      <div className="settings-note"><b>Hardware threshold</b><span>33°C — controlled by the ESP8266 firmware. Dashboard settings do not override hardware safety logic.</span></div>      <div className="settings-actions"><button onClick={()=>{localStorage.removeItem('scs-settings');saveSettings({refresh:2,alerts:true,compact:false})}}>Reset Settings</button><button onClick={()=>{setAlerts([]);setEvents([])}}>Clear Session Alerts</button></div>    </section>}
     {tab==='events'&&<section className="full-tab panel"><div className="section-title"><h2>Alert History & Event Log</h2><button onClick={()=>{setAlerts([]);setEvents([])}}>Clear All</button></div>{[...alerts.map(a=>({time:a.time,event:a.text,value:a.type})),...events].map((e,i)=><div className="event-big" key={i}><span>{e.time}</span><b>{e.event||e.text}</b><strong>{e.value||e.type}</strong></div>)}</section>}
     {tab==='tests'&&<section className="full-tab panel"><h2>Hardware Test</h2><p>Run local dashboard tests against the API. ESP8266 telemetry can overwrite temporary test values.</p><div className="test-buttons">{['ir','mq3','buzzer'].map(x=><button key={x} disabled={!connected} onClick={()=>test(x)}>TEST {x.toUpperCase()}</button>)}</div></section>}
    </main>
