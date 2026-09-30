@@ -10,15 +10,14 @@ function StatusDot({ok}){return <span className={'status-dot '+(ok?'on':'off')}/
 
 export default function App(){
  const[latest,setLatest]=useState({temperature:null,humidity:null,mq3:null,ir:null,buzzer:null,fan:null,lastDeviceUpdate:null});
- const[connected,setConnected]=useState(false),[history,setHistory]=useState([]),[alerts,setAlerts]=useState([]),[events,setEvents]=useState([]),[threshold,setThreshold]=useState(33),[autoFan,setAutoFan]=useState(true),[tab,setTab]=useState('overview'),[apiMs,setApiMs]=useState(null);
+ const[connected,setConnected]=useState(false),[history,setHistory]=useState([]),[alerts,setAlerts]=useState([]),[events,setEvents]=useState([]),[tab,setTab]=useState('overview'),[apiMs,setApiMs]=useState(null);
  const poll=async()=>{const s0=performance.now();try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json();setApiMs(Math.round(performance.now()-s0));setLatest(s);const on=fresh(s.lastDeviceUpdate);setConnected(on);if(on&&s.temperature!=null)setHistory(h=>[...h.slice(-59),{time:now(),temp:Number(s.temperature),hum:Number(s.humidity||0)}]);}catch{setConnected(false)}};
  useEffect(()=>{poll();const id=setInterval(poll,2000);return()=>clearInterval(id)},[]);
- const t=Number(latest.temperature),high=connected&&t>=threshold,gas=connected&&Number(latest.mq3)>=50;
+ const t=Number(latest.temperature),high=connected&&t>33,gas=connected&&Number(latest.mq3)>=50;
  const warning=high||latest.ir===true,critical=gas,status=!connected?'OFFLINE':critical?'CRITICAL':warning?'WARNING':'SAFE';
  const score=!connected?null:Math.max(0,100-(gas?35:0)-(high?15:0)-(latest.ir?5:0));
  const add=(event,value,level='NORMAL')=>{setEvents(e=>[{time:now(),event,value,level},...e].slice(0,30));setAlerts(a=>[{time:now(),text:event+' '+value,type:level},...a].slice(0,30))};
  const test=async(field)=>{const v=!latest[field];await fetch('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[field]:v,source:'dashboard-test'})});add(field.toUpperCase(),'TEST '+(v?'TRIGGERED':'CLEARED'),v?'WARNING':'NORMAL');poll()};
- const command=async(value)=>{await fetch('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fan:value,source:'dashboard-command'})});add('FAN',value?'ON':'OFF','NORMAL');poll()};
  
  useEffect(()=>{if(connected&&latest.ir)add('IR','OBJECT','WARNING')},[latest.ir,connected]);
  useEffect(()=>{if(gas)add('MQ-3','GAS DETECTED','CRITICAL')},[gas]);
@@ -79,7 +78,7 @@ export default function App(){
      <section className="status-grid">
       <div className="panel"><div className="section-title"><h3>◉ Sensors Status</h3><small>{connected?'LIVE':'NO DATA'}</small></div><div className="sensor-cards">{[['IR',latest.ir?'Object':'No Object',latest.ir],['MQ-3',gas?'Alert':'Normal',gas],['DHT11',connected?((latest.temperature??'--')+'°C / '+(latest.humidity??'--')+'%'):'No Data',false]].map((x,i)=><div className="mini-sensor" key={i}><span className={x[2]?'warn-icon':'ok-icon'}>{x[2]?'!':'✓'}</span><b>{x[0]}</b><small>{connected?x[1]:'No Data'}</small></div>)}</div></div>
       <div className="panel"><div className="section-title"><h3>⚙ Actuators Status</h3><small>OUTPUTS</small></div><div className="actuator-cards"><div><span>🔊</span><b>Buzzer</b><strong>{connected?(latest.buzzer?'ON':'OFF'):'--'}</strong></div><div><span>🌀</span><b>Fan</b><strong>{connected?(latest.fan?'ON':'OFF'):'--'}</strong></div></div></div>
-      <div className="panel"><div className="section-title"><h3>♨ Automatic Fan Control</h3><small>{autoFan?'AUTO':'MANUAL'}</small></div><div className="fan-control"><div><span>Temp Threshold</span><b>{threshold}°C</b></div><input type="range" min="25" max="45" value={threshold} onChange={e=>setThreshold(+e.target.value)}/><label><input type="checkbox" checked={autoFan} onChange={e=>setAutoFan(e.target.checked)}/><i/>{autoFan?'Auto Mode':'Manual Mode'}</label></div></div>
+      <div className="panel"><div className="section-title"><h3>♨ Automatic Fan Control</h3><small>AUTO</small></div><div className="fan-control"><div><span>Temperature Threshold</span><b>33°C</b></div><p>Fan is controlled by the ESP8266 when temperature rises above 33°C.</p><label><span>Hardware control</span><b>ACTIVE</b></label></div></div>
      </section>
 
      <section className="analytics-grid">
@@ -90,7 +89,7 @@ export default function App(){
     </>}
 
     {tab==='events'&&<section className="full-tab panel"><div className="section-title"><h2>Alert History & Event Log</h2><button onClick={()=>{setAlerts([]);setEvents([])}}>Clear All</button></div>{[...alerts.map(a=>({time:a.time,event:a.text,value:a.type})),...events].map((e,i)=><div className="event-big" key={i}><span>{e.time}</span><b>{e.event||e.text}</b><strong>{e.value||e.type}</strong></div>)}</section>}
-    {tab==='tests'&&<section className="full-tab panel"><h2>Hardware Test</h2><p>Run local dashboard tests against the API. ESP8266 telemetry can overwrite temporary test values.</p><div className="test-buttons">{['ir','mq3','buzzer'].map(x=><button key={x} disabled={!connected} onClick={()=>test(x)}>TEST {x.toUpperCase()}</button>)}<button disabled={!connected} onClick={()=>command(true)}>FAN ON</button><button disabled={!connected} onClick={()=>command(false)}>FAN OFF</button></div></section>}
+    {tab==='tests'&&<section className="full-tab panel"><h2>Hardware Test</h2><p>Run local dashboard tests against the API. ESP8266 telemetry can overwrite temporary test values.</p><div className="test-buttons">{['ir','mq3','buzzer'].map(x=><button key={x} disabled={!connected} onClick={()=>test(x)}>TEST {x.toUpperCase()}</button>)}</div></section>}
    </main>
    <footer><span>◈ Real-time Monitoring</span><span>♧ AI-Powered Alerts</span><span>☁ Cloud Sync</span><span>▣ Mobile Responsive</span><span>⌾ Secure & Encrypted</span><b>⚗ Hardware Test</b></footer>
   </div>
